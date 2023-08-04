@@ -16,12 +16,16 @@ pub mod layers;
 pub mod ord;
 #[cfg(feature = "persistence")]
 pub mod persistent;
+#[cfg(feature = "sdb-persistence")]
+pub mod sdb_persistent;
 pub mod spine_fueled;
 
 pub use cursor::{Consumer, Cursor, ValueConsumer};
 #[cfg(feature = "persistence")]
 pub use persistent::PersistentTrace as Spine;
-#[cfg(not(feature = "persistence"))]
+#[cfg(feature = "sdb-persistence")]
+pub use sdb_persistent::PersistentTrace as Spine;
+#[cfg(not(any(feature = "persistence", feature = "sdb-persistence")))]
 pub use spine_fueled::Spine;
 
 #[cfg(test)]
@@ -33,7 +37,7 @@ use crate::{
     time::{AntichainRef, Timestamp},
     NumEntries,
 };
-#[cfg(feature = "persistence")]
+#[cfg(any(feature = "persistence", feature = "sdb-persistence"))]
 use bincode::{Decode, Encode};
 use rand::Rng;
 use size_of::SizeOf;
@@ -46,22 +50,22 @@ use std::{fmt::Debug, hash::Hash};
 /// must be generic over any relational data, it is sufficient to impose
 /// `DBData` as a trait bound on types.  Conversely, a trait bound of the form
 /// `B: BatchReader` implies `B::Key: DBData` and `B::Val: DBData`.
-#[cfg(feature = "persistence")]
+#[cfg(any(feature = "persistence", feature = "sdb-persistence"))]
 pub trait DBData:
     Clone + Eq + Ord + Hash + SizeOf + Send + Debug + Decode + Encode + 'static
 {
 }
 
-#[cfg(not(feature = "persistence"))]
+#[cfg(not(any(feature = "persistence", feature = "sdb-persistence")))]
 pub trait DBData: Clone + Eq + Ord + Hash + SizeOf + Send + Debug + 'static {}
 
-#[cfg(feature = "persistence")]
+#[cfg(any(feature = "persistence", feature = "sdb-persistence"))]
 impl<T> DBData for T where
     T: Clone + Eq + Ord + Hash + SizeOf + Send + Debug + Decode + Encode + 'static
 {
 }
 
-#[cfg(not(feature = "persistence"))]
+#[cfg(not(any(feature = "persistence", feature = "sdb-persistence")))]
 impl<T> DBData for T where T: Clone + Eq + Ord + Hash + SizeOf + Send + Debug + 'static {}
 
 /// Trait for data types used as weights.

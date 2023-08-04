@@ -241,6 +241,10 @@ where
         };
         self.lower_key_bound = Some(bound);
     }
+
+    fn sample_keys<RG>(&self, rng: &mut RG, sample_size: usize, sample: &mut Vec<Self::Key>) {
+        todo!();
+    }
 }
 
 /// The data-type that is persisted as the value in RocksDB.

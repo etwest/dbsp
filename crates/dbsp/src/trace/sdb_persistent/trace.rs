@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 use splinterdb_rs::SplinterColumnFamily;
 use crate::trace::sdb_persistent::sdb_interface::DbspSplinterFuncs;
-use super::{PersistentTraceCursor, ReusableEncodeBuffer, Values};
+use super::{PersistentTraceCursor, ReusableEncodeBuffer};
 use super::{BINCODE_CONFIG, SPLINTER_DB_INSTANCE, DB_KEY_SIZE};
 use crate::algebra::AddAssignByRef;
 use crate::circuit::Activator;
@@ -26,9 +26,9 @@ use crate::NumEntries;
 /// A persistent trace implementation.
 ///
 /// - It mimics the (external) behavior of a `Spine`, but internally it uses a
-///   RocksDB ColumnFamily to store it's data.
+///   SplinterDB ColumnFamily to store it's data.
 ///
-/// - It also relies on merging and compaction of the RocksDB key-value store
+/// - It also relies on merging and compaction of the SplinterDB key-value store
 ///   rather than controlling these aspects itself.
 #[derive(SizeOf)]
 pub struct PersistentTrace<B>
@@ -46,7 +46,6 @@ where
     /// Where all the dataz is.
     #[size_of(skip)]
     cf: Arc<SplinterColumnFamily>,
-    cf_name: String,
     // #[size_of(skip)]
     // _cf_options: Options,
 
@@ -81,7 +80,6 @@ where
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
         let mut cursor: PersistentTraceCursor<B> = self.cursor();
         writeln!(f, "PersistentTrace:")?;
-        writeln!(f, "    rocksdb column {}:", self.cf_name)?;
         while cursor.key_valid() {
             writeln!(f, "{:?}:", cursor.key())?;
             while cursor.val_valid() {
@@ -120,12 +118,12 @@ where
     const CONST_NUM_ENTRIES: Option<usize> = None;
 
     fn num_entries_shallow(&self) -> usize {
-        todo!();
+        self.key_count()
     }
 
     fn num_entries_deep(&self) -> usize {
         // Same as Spine implementation:
-        todo!();
+        self.num_entries_shallow()
     }
 }
 
@@ -216,128 +214,31 @@ where
     ///
     /// This is an estimate, not an accurate count.
     fn len(&self) -> usize {
-        todo!();
+        self.approximate_len
     }
 
     fn lower(&self) -> AntichainRef<Self::Time> {
-        todo!();
+        self.lower.as_ref()
     }
 
     fn upper(&self) -> AntichainRef<Self::Time> {
-        todo!();
+        self.upper.as_ref()
     }
 
     fn cursor(&self) -> Self::Cursor<'_> {
-        todo!();
+        PersistentTraceCursor::new(&self.cf, &self.lower_key_bound)
     }
 
     fn truncate_keys_below(&mut self, lower_bound: &Self::Key) {
-        todo!();
+        let bound = if let Some(bound) = &self.lower_key_bound {
+            max(bound, lower_bound).clone()
+        } else {
+            lower_bound.clone()
+        };
+        self.lower_key_bound = Some(bound);
     }
 
     fn sample_keys<RG>(&self, rng: &mut RG, sample_size: usize, sample: &mut Vec<Self::Key>) {
-        todo!();
-    }
-}
-
-/// The data-type that is persisted as the value in RocksDB.
-#[derive(Debug)]
-pub(super) enum PersistedValue<V, T, R>
-where
-    V: DBData,
-    T: DBTimestamp,
-    R: DBWeight,
-{
-    /// Values with key-weight pairs.
-    Values(Values<V, T, R>),
-    /// A tombstone for a key which had its values deleted (during merges).
-    ///
-    /// It signifies that the key shouldn't exist anymore. See also
-    /// [`tombstone_compaction`] which gets rid of Tombstones during compaction.
-    Tombstone,
-}
-
-/// Decode for [`Self`] is currently implemented manually thanks to a bug in
-/// bincode (enum+generics seems to break things).
-///
-/// See also: https://github.com/bincode-org/bincode/issues/537
-impl<V, T, R> Decode for PersistedValue<V, T, R>
-where
-    V: DBData,
-    T: DBTimestamp,
-    R: DBWeight,
-{
-    fn decode<D: bincode::de::Decoder>(
-        decoder: &mut D,
-    ) -> core::result::Result<Self, bincode::error::DecodeError> {
-        todo!();
-    }
-}
-
-/// Encode for [`Self`] is currently implemented manually thanks to a bug in
-/// bincode (enum+generics seems to break things).
-///
-/// See also: https://github.com/bincode-org/bincode/issues/537
-impl<V, T, R> Encode for PersistedValue<V, T, R>
-where
-    V: DBData,
-    T: DBTimestamp,
-    R: DBWeight,
-{
-    fn encode<E: bincode::enc::Encoder>(
-        &self,
-        encoder: &mut E,
-    ) -> core::result::Result<(), bincode::error::EncodeError> {
-        todo!();
-    }
-}
-
-/// A merge-op is what [`PersistentTrace`] supplies to the RocksDB instance to
-/// indicate how to update the values.
-#[derive(Clone, Debug)]
-pub enum MergeOp<V, T, R>
-where
-    V: DBData,
-    T: DBTimestamp,
-    R: DBWeight,
-{
-    /// A recede-to command to reset times of values.
-    RecedeTo(T),
-    /// An insertion of a new value or update of an existing value.
-    Insert(Values<V, T, R>),
-}
-
-/// Decode for [`Self`] is currently implemented manually thanks to a bug in
-/// bincode (enum+generics seems to break things).
-///
-/// See also: https://github.com/bincode-org/bincode/issues/537
-impl<V, T, R> Decode for MergeOp<V, T, R>
-where
-    V: DBData,
-    T: DBTimestamp,
-    R: DBWeight,
-{
-    fn decode<D: bincode::de::Decoder>(
-        decoder: &mut D,
-    ) -> core::result::Result<Self, bincode::error::DecodeError> {
-        todo!();
-    }
-}
-
-/// Encode for [`Self`] is currently implemented manually thanks to a bug in
-/// bincode (enum+generics seems to break things).
-///
-/// See also: https://github.com/bincode-org/bincode/issues/537
-impl<V, T, R> Encode for MergeOp<V, T, R>
-where
-    V: DBData,
-    T: DBTimestamp,
-    R: DBWeight,
-{
-    fn encode<E: bincode::enc::Encoder>(
-        &self,
-        encoder: &mut E,
-    ) -> core::result::Result<(), bincode::error::EncodeError> {
         todo!();
     }
 }
@@ -358,13 +259,25 @@ where
     /// # Arguments
     /// - `activator`: This is not used, None should be supplied.
     fn new(_activator: Option<Activator>) -> Self {
-        todo!();
+        let cf = SPLINTER_DB_INSTANCE
+            .column_family_create::<DbspSplinterFuncs<B>>(DB_KEY_SIZE as u64)
+            .expect("Can't create column family?");
+        Self {
+            lower: Antichain::from_elem(B::Time::minimum()),
+            upper: Antichain::new(),
+            approximate_len: 0,
+            lower_key_bound: None,
+            lower_val_bound: None,
+            dirty: false,
+            cf,
+            _phantom: std::marker::PhantomData,
+        }
     }
 
     /// Recede to works by sending a `RecedeTo` command to every key in the
     /// trace.
     fn recede_to(&mut self, frontier: &B::Time) {
-        todo!();
+        // This is a no-op for the moment. We may implement it in the future.
     }
 
     fn exert(&mut self, _effort: &mut isize) {
@@ -373,27 +286,68 @@ where
     }
 
     fn consolidate(self) -> Option<Self::Batch> {
-        todo!();
+        // TODO: Not clear what the time of the batch should be here -- in Spine
+        // the batch will not be `minimum` as it's created through merges of all
+        // batches.
+        //
+        // In discussion with Leonid: We probably want to move consolidate out
+        // of the trace trait.
+        let mut builder = <Self::Batch as Batch>::Builder::new_builder(Self::Time::minimum());
+
+        let mut cursor = self.cursor();
+        while cursor.key_valid() {
+            while cursor.val_valid() {
+                let v = cursor.val().clone();
+                let mut w = B::R::zero();
+                cursor.map_times(|_t, cur_w| {
+                    w.add_assign_by_ref(cur_w);
+                });
+                let k = cursor.key().clone();
+
+                builder.push((Self::Batch::item_from(k, v), w));
+                cursor.step_val();
+            }
+
+            cursor.step_key();
+        }
+
+        Some(builder.done())
     }
 
     fn insert(&mut self, batch: Self::Batch) {
-        todo!();
+        assert!(batch.lower() != batch.upper());
+
+        // Ignore empty batches.
+        // Note: we may want to use empty batches to artificially force compaction.
+        if batch.is_empty() {
+            return;
+        }
+
+        self.dirty = true;
+        self.lower = self.lower.as_ref().meet(batch.lower());
+        self.upper = self.upper.as_ref().join(batch.upper());
+
+        self.add_batch_to_cf(batch);
     }
 
     fn clear_dirty_flag(&mut self) {
-        todo!();
+        self.dirty = false;
     }
 
     fn dirty(&self) -> bool {
-        todo!();
+        self.dirty
     }
 
     fn truncate_values_below(&mut self, lower_bound: &Self::Val) {
-        todo!();
+        self.lower_val_bound = Some(if let Some(bound) = &self.lower_val_bound {
+            max(bound, lower_bound).clone()
+        } else {
+            lower_bound.clone()
+        });
     }
 
     fn lower_value_bound(&self) -> &Option<Self::Val> {
-        todo!();
+        &self.lower_val_bound
     }
 }
 
@@ -402,6 +356,35 @@ where
     B: Batch,
 {
     fn add_batch_to_cf(&mut self, batch: B) {
-        todo!();
+        use crate::trace::cursor::CursorDebug;
+
+        let mut tmp_key = ReusableEncodeBuffer::default();
+        let mut tmp_val = ReusableEncodeBuffer::default();
+
+        let mut sstable = WriteBatch::default();
+        let mut batch_cursor = batch.cursor();
+
+        while batch_cursor.key_valid() {
+            let key = batch_cursor.key();
+            let vals: Values<B::Val, B::Time, B::R> = batch_cursor.val_to_vec();
+            self.approximate_len += vals.len();
+            for val in vals {
+                for tw in val.1 {
+                    let spd_key = SplinterKey {
+                        key: key,
+                        value: val.0,
+                        timestamp: tw.0,
+                    }
+                    let spd_val = SplinterValue {
+                        weight: tw.1,
+                    }
+
+                    let encoded_key = tmp_key.encode(&spd_key).expect("Can't encode `key`");
+                    let encoded_val = tmp_val.encode(&spd_val).expect("Can't encode `vals`");
+                    self.cf.insert(encoded_key, encoded_val).expect("Could not insert to");
+                }
+            }
+            batch_cursor.step_key();
+        }
     }
 }

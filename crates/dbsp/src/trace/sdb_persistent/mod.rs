@@ -19,12 +19,23 @@ mod cursor;
 mod tests;
 mod trace;
 
-/// A single value with many time and weight tuples.
-type ValueTimeWeights<V, T, R> = (V, Vec<(T, R)>);
+#[derive(Encode, Decode)]
+enum SplinterMeta<V, T> {
+    Empty,
+    Value(V),
+    ValueTimestamp(V, T),
+}
 
-/// A collection of values with time and weight tuples, this is the type that we
-/// persist in RocksDB under values.
-type Values<V, T, R> = Vec<ValueTimeWeights<V, T, R>>;
+#[derive(Encode, Decode)]
+struct SplinterKey<K, V, T> {
+    key: K,
+    meta: SplinterMeta<V, T>,
+}
+
+#[derive(Encode, Decode)]
+struct SplinterValue<R> {
+    weight: R,
+}
 
 /// The cursor for the persistent trace.
 pub use cursor::PersistentTraceCursor;
@@ -68,11 +79,12 @@ static DB_PATH: Lazy<String> = Lazy::new(|| format!("/tmp/{}.db", Uuid::new_v4()
 
 /// Config for the SplinterDB database
 static DB_OPTS: Lazy<DBConfig> = Lazy::new(|| {
-    DBConfig{
+    DBConfig {
         cache_size_bytes: DB_DRAM_CACHE_SIZE,
         disk_size_bytes: DB_DISK_MAX_SIZE,
         max_key_size: DB_KEY_SIZE,
         max_value_size: DB_VALUE_SIZE,
+        ..Default::default()
     }
 });
 
@@ -83,7 +95,7 @@ static DB_OPTS: Lazy<DBConfig> = Lazy::new(|| {
 /// Is it okay that this will overwrite the existing database?
 static SPLINTER_DB_INSTANCE: Lazy<SplinterDBWithColumnFamilies> = Lazy::new(|| {
     // Open the database (or create it if it doesn't exist
-    let sdb = SplinterDBWithColumnFamilies::new();
+    let mut sdb = SplinterDBWithColumnFamilies::new();
     sdb.db_create(&DB_PATH.clone(), &DB_OPTS);
     sdb
 });
@@ -93,16 +105,6 @@ static BINCODE_CONFIG: bincode::config::Configuration<BigEndian, Fixint> =
     bincode::config::standard()
         .with_fixed_int_encoding()
         .with_big_endian();
-
-/// Wrapper function for doing key comparison in RockDB.
-///
-/// It works by deserializing the keys and then comparing it (as opposed to the
-/// byte-wise comparison which is the default in RocksDB).
-pub(self) fn rocksdb_key_comparator<K: Decode + Ord>(a: &[u8], b: &[u8]) -> Ordering {
-    let (key_a, _) = decode_from_slice::<K, _>(a, BINCODE_CONFIG).expect("Can't decode_from_slice");
-    let (key_b, _) = decode_from_slice::<K, _>(b, BINCODE_CONFIG).expect("Can't decode_from_slice");
-    key_a.cmp(&key_b)
-}
 
 /// A buffer that holds an encoded value.
 ///
